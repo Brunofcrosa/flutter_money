@@ -1,12 +1,12 @@
+// lib/paginas/painel/painel.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_money/paginas/receitas/formulario_receitas.dart';
 import 'package:flutter_money/paginas/despesas/formulario_despesas.dart';
 import 'package:flutter_money/modelos/despesa.dart';
 import 'package:flutter_money/servicos/banco_dados.dart';
-import 'package:flutter_money/paginas/comprovantes/comprovantes.dart';
-import 'package:flutter_money/paginas/historico/historico.dart';
 import 'package:flutter_money/paginas/configuracoes/configuracoes.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter_money/componentes/grafico.dart'; // Importa o novo widget GraficoPizza
 
 class Painel extends StatefulWidget {
   const Painel({super.key});
@@ -89,34 +89,74 @@ class _PainelState extends State<Painel> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dashboard Financeira'),
+        leading: IconButton(
+          icon: const Icon(
+            Icons.settings,
+            color: Color(
+              0xFF00C853,
+            ), // Cor verde exata da imagem para a engrenagem
+          ),
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ConfiguracoesPage(),
+              ),
+            );
+          },
+        ),
+        title: const Text(
+          'Saldo do mês atual',
+          style: TextStyle(
+            color: Colors.black, // Título preto
+            fontWeight: FontWeight.bold,
+            fontSize: 20, // Ajuste de tamanho para o título
+          ),
+        ),
+        centerTitle: true, // Centraliza o título no AppBar
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings),
+            icon: const Icon(
+              Icons.person,
+              color: Color(
+                0xFF00C853,
+              ), // Cor verde exata da imagem para o ícone de pessoa
+            ),
             onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const ConfiguracoesPage(),
+              // TODO: Implementar navegação para a tela de perfil do usuário
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Funcionalidade de perfil em desenvolvimento.'),
                 ),
               );
             },
           ),
         ],
+        backgroundColor: Colors.white, // Fundo branco para o AppBar
+        elevation: 0, // Remove a sombra abaixo da AppBar
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(
+              child: CircularProgressIndicator(),
+            ) // Exibe indicador de carregamento
           : RefreshIndicator(
-              onRefresh: _carregarDadosDashboard,
+              onRefresh:
+                  _carregarDadosDashboard, // Permite "puxar para atualizar"
               child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
+                physics:
+                    const AlwaysScrollableScrollPhysics(), // Garante que pode rolar mesmo com pouco conteúdo
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment
+                      .center, // Centraliza elementos na coluna
                   children: [
-                    _buildResumoFinanceiro(),
-                    const SizedBox(height: 24),
-                    _buildBotoesPrincipais(context),
+                    // Seção do gráfico de pizza e informações de saldo
+                    _buildSecaoGraficoSaldo(),
+                    const SizedBox(
+                      height: 40,
+                    ), // Espaço entre o gráfico e os botões
+                    // Seção dos botões de ação (Adicionar Ganho/Despesa)
+                    _buildBotoesAcaoPrincipais(),
                   ],
                 ),
               ),
@@ -124,173 +164,125 @@ class _PainelState extends State<Painel> {
     );
   }
 
-  Widget _buildResumoFinanceiro() {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Resumo de ${DateFormat.MMMMEEEEd('pt_BR').format(DateTime.now())}',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const Divider(height: 20),
-            _buildResumoItem('Total de Ganhos:', _totalGanhos, Colors.green),
-            _buildResumoItem(
-              'Total de Despesas Fixas:',
-              _totalDespesasFixas,
-              Colors.red,
-            ),
-            _buildResumoItem(
-              'Total de Despesas Avulsas:',
-              _totalDespesasAvulsas,
-              Colors.orange,
-            ),
-            const Divider(height: 20),
-            _buildResumoItem(
-              'Saldo Atual:',
-              _saldoAtual,
-              _saldoAtual >= 0 ? Colors.blue : Colors.red.shade700,
-              isSaldo: true,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildResumoItem(
-    String titulo,
-    double valor,
-    Color cor, {
-    bool isSaldo = false,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            titulo,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: isSaldo ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
-          Text(
-            _currencyFormat.format(valor),
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: isSaldo ? FontWeight.bold : FontWeight.normal,
-              color: cor,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBotoesPrincipais(BuildContext context) {
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: 2,
-      crossAxisSpacing: 16.0,
-      mainAxisSpacing: 16.0,
+  // Constrói a seção visual do gráfico de pizza e os valores de saldo.
+  // Observação: Este é um gráfico SIMULADO usando CustomPaint. Para gráficos reais e interativos,
+  // seriam necessárias bibliotecas como `fl_chart` ou `charts_flutter`.
+  Widget _buildSecaoGraficoSaldo() {
+    return Stack(
+      alignment: Alignment.center, // Centraliza os filhos da Stack
       children: [
-        _construirBotaoAcao(
-          context,
-          Icons.add,
-          'Adicionar Ganho',
-          Colors.green.shade100,
-          () async {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const FormularioReceitas(),
-              ),
-            );
-            _carregarDadosDashboard();
-          },
+        GraficoPizza(
+          // Usando o novo widget GraficoPizza
+          saldo: _saldoAtual,
+          totalDespesasFixas: _totalDespesasFixas,
+          totalDespesasAvulsas: _totalDespesasAvulsas,
+          currencyFormat: _currencyFormat,
         ),
-        _construirBotaoAcao(
-          context,
-          Icons.remove,
-          'Adicionar Despesa',
-          Colors.red.shade100,
-          () async {
-            _mostrarOpcoesDespesa(context);
-            _carregarDadosDashboard();
-          },
-        ),
-        _construirBotaoAcao(
-          context,
-          Icons.camera_alt,
-          'Capturar Nota Fiscal',
-          Colors.blue.shade100,
-          () async {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const ComprovantesPage()),
-            );
-          },
-        ),
-        _construirBotaoAcao(
-          context,
-          Icons.history,
-          'Ver Histórico',
-          Colors.purple.shade100,
-          () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const HistoricoPage()),
-            );
-          },
+        Text(
+          _currencyFormat.format(_saldoAtual), // Valor do saldo atual no centro
+          style: const TextStyle(
+            fontSize: 17, // Mantém o tamanho do texto central
+            fontWeight: FontWeight.bold,
+            color: Colors.black, // Cor do texto do saldo
+          ),
         ),
       ],
     );
   }
 
+  // Constrói os botões principais de ação (Adicionar Ganho e Adicionar Despesa).
+  Widget _buildBotoesAcaoPrincipais() {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment
+              .spaceEvenly, // Distribui o espaço igualmente entre os botões
+          children: [
+            // Botão para adicionar ganho
+            _construirBotaoAcao(
+              context,
+              Icons.add,
+              'Adicionar\nGanho Extra', // Texto em duas linhas
+              const Color(0xFFC8E6C9), // Fundo verde claro para ganho
+              () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const FormularioReceitas(),
+                  ),
+                ).then(
+                  (_) => _carregarDadosDashboard(),
+                ); // Recarrega o dashboard ao retornar
+              },
+              iconColor: const Color(0xFF00C853), // Ícone verde forte
+              textColor: Colors.black, // Texto preto
+            ),
+            // Botão para adicionar despesa
+            _construirBotaoAcao(
+              context,
+              Icons.remove,
+              'Adicionar\nDespesa', // Texto em duas linhas
+              const Color(0xFFFFCDD2), // Fundo vermelho claro para despesa
+              () {
+                _mostrarOpcoesDespesa(
+                  context,
+                ); // Mostra diálogo de opções de despesa
+              },
+              iconColor: const Color(0xFFD32F2F), // Ícone vermelho forte
+              textColor: Colors.black, // Texto preto
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // Função utilitária para construir botões de ação com estilo customizado.
   Widget _construirBotaoAcao(
     BuildContext context,
     IconData icon,
     String label,
-    Color color,
-    VoidCallback onTap,
-  ) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      color: color,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 40, color: Colors.black87),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+    Color backgroundColor,
+    VoidCallback onTap, {
+    Color? iconColor,
+    Color? textColor,
+  }) {
+    return Expanded(
+      child: Card(
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        color: backgroundColor,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              vertical: 20.0,
+              horizontal: 10.0,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 40, color: iconColor ?? Colors.black87),
+                const SizedBox(height: 8),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: textColor ?? Colors.black87,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
+  // Exibe um diálogo para o usuário escolher o tipo de despesa (Fixa/Parcelada ou Avulsa).
   void _mostrarOpcoesDespesa(BuildContext context) {
     showDialog(
       context: context,
@@ -305,7 +297,6 @@ class _PainelState extends State<Painel> {
                 title: const Text('Despesa Fixa / Parcelada'),
                 onTap: () {
                   Navigator.of(dialogContext).pop();
-
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -313,7 +304,7 @@ class _PainelState extends State<Painel> {
                         tipoDespesa: TipoDespesa.fixa,
                       ),
                     ),
-                  );
+                  ).then((_) => _carregarDadosDashboard());
                 },
               ),
               ListTile(
@@ -328,7 +319,7 @@ class _PainelState extends State<Painel> {
                         tipoDespesa: TipoDespesa.avulsa,
                       ),
                     ),
-                  );
+                  ).then((_) => _carregarDadosDashboard());
                 },
               ),
             ],

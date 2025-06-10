@@ -1,8 +1,9 @@
+// lib/paginas/autenticacao/login.dart
 import 'package:flutter/material.dart';
-import 'package:flutter_money/paginas/painel/painel.dart';
 import 'package:flutter_money/paginas/autenticacao/formulario_cadastro.dart';
 import 'package:flutter_money/servicos/banco_dados.dart';
 import 'package:flutter_money/modelos/usuario.dart';
+import 'package:flutter_money/paginas/home/home_page.dart'; // Certifique-se que esta importação existe
 
 class Login extends StatefulWidget {
   const Login({super.key});
@@ -30,8 +31,11 @@ class _LoginState extends State<Login> {
           const SnackBar(content: Text('Login efetuado com sucesso!')),
         );
 
+        // AQUI: Altere a navegação para HomePage
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const Painel()),
+          MaterialPageRoute(
+            builder: (context) => const HomePage(),
+          ), // Redireciona para HomePage
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(

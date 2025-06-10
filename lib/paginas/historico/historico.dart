@@ -1,11 +1,12 @@
-// flutter_money/lib/paginas/historico/historico_page.dart
+// lib/paginas/historico/historico.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter_money/paginas/historico/selecionar_mes.dart';
+import 'package:flutter_money/servicos/banco_dados.dart';
 import 'package:flutter_money/modelos/receita.dart';
 import 'package:flutter_money/modelos/despesa.dart';
-import 'package:flutter_money/servicos/banco_dados.dart';
-
-enum TipoTransacaoFiltro { todos, ganho, despesaFixa, despesaAvulsa }
+import 'package:flutter_money/paginas/receitas/formulario_receitas.dart'; // Importe para edição
+import 'package:flutter_money/paginas/despesas/formulario_despesas.dart'; // Importe para edição
 
 class HistoricoPage extends StatefulWidget {
   const HistoricoPage({super.key});
@@ -16,72 +17,59 @@ class HistoricoPage extends StatefulWidget {
 
 class _HistoricoPageState extends State<HistoricoPage> {
   DateTime _mesSelecionado = DateTime.now();
-  TipoTransacaoFiltro _tipoFiltro = TipoTransacaoFiltro.todos;
-  List<dynamic> _transacoes = [];
+  List<dynamic> _itens = []; // Lista para receitas e despesas
   bool _isLoading = true;
-  final NumberFormat _currencyFormat = NumberFormat.currency(
-    locale: 'pt_BR',
-    symbol: 'R\$',
-  );
-  final DateFormat _dateFormat = DateFormat('dd/MM/yyyy');
 
   @override
   void initState() {
     super.initState();
-    _carregarTransacoes();
+    _carregarItensDoMes();
   }
 
-  Future<void> _carregarTransacoes() async {
+  // Carrega as receitas e despesas do mês selecionado
+  Future<void> _carregarItensDoMes() async {
     setState(() {
       _isLoading = true;
+      _itens = []; // Limpa a lista antes de recarregar
     });
 
     try {
-      List<Receita> receitas = await BancoDados.instancia.listarReceitas();
-      List<Despesa> despesas = await BancoDados.instancia.listarDespesas();
+      final todasReceitas = await BancoDados.instancia
+          .listarReceitas(); // Busca todas as receitas
+      final todasDespesas = await BancoDados.instancia
+          .listarDespesas(); // Busca todas as despesas
 
-      List<dynamic> transacoesFiltradas = [];
+      // Filtra receitas do mês e ano selecionados
+      final receitasDoMes = todasReceitas.where((r) {
+        return r.data.month == _mesSelecionado.month &&
+            r.data.year == _mesSelecionado.year;
+      }).toList();
 
-      for (var r in receitas) {
-        if (r.data.year == _mesSelecionado.year &&
-            r.data.month == _mesSelecionado.month) {
-          transacoesFiltradas.add(r);
-        }
-      }
-
-      for (var d in despesas) {
-        if (d.dataVencimento.year == _mesSelecionado.year &&
-            d.dataVencimento.month == _mesSelecionado.month) {
-          transacoesFiltradas.add(d);
-        }
-      }
-
-      if (_tipoFiltro == TipoTransacaoFiltro.ganho) {
-        transacoesFiltradas = transacoesFiltradas.whereType<Receita>().toList();
-      } else if (_tipoFiltro == TipoTransacaoFiltro.despesaFixa) {
-        transacoesFiltradas = transacoesFiltradas
-            .whereType<Despesa>()
-            .where((d) => d.tipo == TipoDespesa.fixa)
-            .toList();
-      } else if (_tipoFiltro == TipoTransacaoFiltro.despesaAvulsa) {
-        transacoesFiltradas = transacoesFiltradas
-            .whereType<Despesa>()
-            .where((d) => d.tipo == TipoDespesa.avulsa)
-            .toList();
-      }
-
-      transacoesFiltradas.sort((a, b) {
-        DateTime dataA = a is Receita ? a.data : (a as Despesa).dataVencimento;
-        DateTime dataB = b is Receita ? b.data : (b as Despesa).dataVencimento;
-        return dataB.compareTo(dataA);
-      });
+      // Filtra despesas do mês e ano selecionados
+      final despesasDoMes = todasDespesas.where((d) {
+        return d.dataVencimento.month == _mesSelecionado.month &&
+            d.dataVencimento.year == _mesSelecionado.year;
+      }).toList();
 
       setState(() {
-        _transacoes = transacoesFiltradas;
+        _itens = [...receitasDoMes, ...despesasDoMes]; // Combina as listas
+        // Ordena por data, receitas primeiro, depois despesas.
+        // Ou você pode definir uma ordem diferente, como a mais recente primeiro, independente do tipo.
+        _itens.sort((a, b) {
+          DateTime dataA = (a is Receita)
+              ? a.data
+              : (a as Despesa).dataVencimento;
+          DateTime dataB = (b is Receita)
+              ? b.data
+              : (b as Despesa).dataVencimento;
+          return dataB.compareTo(
+            dataA,
+          ); // Ordena da mais recente para a mais antiga
+        });
         _isLoading = false;
       });
     } catch (e) {
-      print('Erro ao carregar transações: $e');
+      print('Erro ao carregar itens: $e');
       setState(() {
         _isLoading = false;
       });
@@ -91,162 +79,245 @@ class _HistoricoPageState extends State<HistoricoPage> {
     }
   }
 
-  Future<bool> _verificarComprovanteVinculado(int idDespesa) async {
-    final comprovantes = await BancoDados.instancia
-        .listarComprovantesPorDespesa(idDespesa);
-    return comprovantes.isNotEmpty;
+  // Exibe um diálogo de confirmação antes de remover um item
+  Future<void> _confirmarRemocao(int id, String tipoItem) async {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false, // Usuário deve tocar no botão
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: Text('Remover $tipoItem?'),
+          content: Text('Tem certeza que deseja remover este $tipoItem?'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancelar'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              },
+            ),
+            TextButton(
+              child: const Text('Remover', style: TextStyle(color: Colors.red)),
+              onPressed: () async {
+                Navigator.of(dialogContext).pop(); // Fecha o diálogo
+                await _removerItem(id, tipoItem); // Chama a função de remoção
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
-  Future<void> _selecionarMes(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _mesSelecionado,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2101),
-      initialDatePickerMode: DatePickerMode.year,
-      locale: const Locale('pt', 'BR'),
-    );
-
-    if (picked != null && picked != _mesSelecionado) {
-      setState(() {
-        _mesSelecionado = picked;
-      });
-      _carregarTransacoes();
+  // Remove o item do banco de dados e recarrega a lista
+  Future<void> _removerItem(int id, String tipoItem) async {
+    try {
+      if (tipoItem == 'receita') {
+        await BancoDados.instancia.removerReceita(id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Receita removida com sucesso!')),
+        );
+      } else if (tipoItem == 'despesa') {
+        await BancoDados.instancia.removerDespesa(id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Despesa removida com sucesso!')),
+        );
+      }
+      _carregarItensDoMes(); // Recarrega a lista após a remoção
+    } catch (e) {
+      print('Erro ao remover $tipoItem: $e');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro ao remover $tipoItem: $e')));
     }
+  }
+
+  // Navega para o formulário de edição ou criação de item
+  void _navegarParaFormulario({dynamic item}) async {
+    if (item is Receita) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => FormularioReceitas(receitaParaEdicao: item),
+        ),
+      );
+    } else if (item is Despesa) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => FormularioDespesas(
+            tipoDespesa: item.tipo,
+            despesaParaEdicao: item,
+          ),
+        ),
+      );
+    }
+    _carregarItensDoMes(); // Recarrega a lista ao retornar do formulário
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Histórico de Transações'),
+        title: const Text(
+          'Histórico de Transações',
+          style: TextStyle(color: Colors.black),
+        ),
+        centerTitle: true,
         actions: [
           IconButton(
-            icon: const Icon(Icons.calendar_month),
-            onPressed: () => _selecionarMes(context),
-          ),
-          DropdownButton<TipoTransacaoFiltro>(
-            value: _tipoFiltro,
-            icon: const Icon(Icons.filter_list, color: Colors.white),
-            underline: const SizedBox(),
-            onChanged: (TipoTransacaoFiltro? newValue) {
-              setState(() {
-                _tipoFiltro = newValue!;
-              });
-              _carregarTransacoes();
+            icon: const Icon(Icons.calendar_month, color: Color(0xFF00C853)),
+            onPressed: () async {
+              final DateTime? pickedDate = await showDialog<DateTime>(
+                context: context,
+                builder: (BuildContext context) {
+                  return Dialog(
+                    child: SizedBox(
+                      width:
+                          300, // Largura fixa para o seletor de mês no diálogo
+                      height:
+                          400, // Altura fixa para o seletor de mês no diálogo
+                      child: MonthSelector(
+                        initialDate: _mesSelecionado,
+                        onMonthSelected: (newDate) {
+                          Navigator.of(
+                            context,
+                          ).pop(newDate); // Retorna a data selecionada
+                        },
+                        onYearChanged: (newDate) {
+                          // Se o ano mudar, recarrega o seletor para o novo ano
+                          setState(() {
+                            _mesSelecionado = newDate;
+                          });
+                        },
+                      ),
+                    ),
+                  );
+                },
+              );
+
+              if (pickedDate != null && pickedDate != _mesSelecionado) {
+                setState(() {
+                  _mesSelecionado = pickedDate;
+                });
+                _carregarItensDoMes(); // Recarrega os itens para o novo mês/ano
+              }
             },
-            items: const <DropdownMenuItem<TipoTransacaoFiltro>>[
-              DropdownMenuItem(
-                value: TipoTransacaoFiltro.todos,
-                child: Text('Todos', style: TextStyle(color: Colors.black)),
-              ),
-              DropdownMenuItem(
-                value: TipoTransacaoFiltro.ganho,
-                child: Text('Ganhos', style: TextStyle(color: Colors.green)),
-              ),
-              DropdownMenuItem(
-                value: TipoTransacaoFiltro.despesaFixa,
-                child: Text(
-                  'Despesas Fixas',
-                  style: TextStyle(color: Colors.red),
-                ),
-              ),
-              DropdownMenuItem(
-                value: TipoTransacaoFiltro.despesaAvulsa,
-                child: Text(
-                  'Despesas Avulsas',
-                  style: TextStyle(color: Colors.orange),
-                ),
-              ),
-            ],
           ),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _transacoes.isEmpty
-          ? Center(
-              child: Text(
-                'Nenhuma transação encontrada para ${DateFormat('MMMM y', 'pt_BR').format(_mesSelecionado)} com o filtro selecionado.',
-              ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(8.0),
-              itemCount: _transacoes.length,
-              itemBuilder: (context, index) {
-                final transacao = _transacoes[index];
-                if (transacao is Receita) {
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 4.0),
-                    child: ListTile(
-                      leading: const Icon(
-                        Icons.arrow_upward,
-                        color: Colors.green,
-                      ),
-                      title: Text(transacao.descricao ?? 'Ganho'),
-                      subtitle: Text(_dateFormat.format(transacao.data)),
-                      trailing: Text(
-                        _currencyFormat.format(transacao.valor),
-                        style: const TextStyle(
-                          color: Colors.green,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      onTap: () {},
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text(
+                    DateFormat('MMMM y', 'pt_BR').format(_mesSelecionado),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
-                  );
-                } else if (transacao is Despesa) {
-                  final despesa = transacao;
-                  return FutureBuilder<bool>(
-                    future: _verificarComprovanteVinculado(despesa.id!),
-                    builder: (context, snapshot) {
-                      bool temComprovante = snapshot.data ?? false;
-                      return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 4.0),
-                        child: ListTile(
-                          leading: Icon(
-                            Icons.arrow_downward,
-                            color: despesa.tipo == TipoDespesa.fixa
-                                ? Colors.red
-                                : Colors.orange,
-                          ),
-                          title: Text(
-                            despesa.nome ?? despesa.descricao ?? 'Despesa',
-                          ),
-                          subtitle: Text(
-                            _dateFormat.format(despesa.dataVencimento),
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _currencyFormat.format(despesa.valor),
-                                style: TextStyle(
-                                  color: despesa.tipo == TipoDespesa.fixa
-                                      ? Colors.red
-                                      : Colors.orange,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              if (temComprovante) ...[
-                                const SizedBox(width: 8),
-                                const Icon(
-                                  Icons.attach_file,
-                                  size: 18,
-                                  color: Colors.grey,
-                                ),
-                              ],
-                            ],
-                          ),
-                          onTap: () {},
+                  ),
+                ),
+                Expanded(
+                  child: _itens.isEmpty
+                      ? const Center(
+                          child: Text('Nenhuma transação neste mês.'),
+                        )
+                      : ListView.builder(
+                          itemCount: _itens.length,
+                          itemBuilder: (context, index) {
+                            final item = _itens[index];
+                            if (item is Receita) {
+                              return _buildReceitaCard(item);
+                            } else if (item is Despesa) {
+                              return _buildDespesaCard(item);
+                            }
+                            return const SizedBox.shrink(); // Caso algum tipo inesperado
+                          },
                         ),
-                      );
-                    },
-                  );
-                }
-                return const SizedBox.shrink();
-              },
+                ),
+              ],
             ),
+    );
+  }
+
+  // Constrói o Card para um item de Receita
+  Widget _buildReceitaCard(Receita receita) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+      elevation: 2,
+      child: ListTile(
+        leading: const Icon(Icons.arrow_upward, color: Colors.green),
+        title: Text(
+          receita.descricao?.isNotEmpty == true
+              ? receita.descricao!
+              : 'Receita sem descrição',
+        ),
+        subtitle: Text(DateFormat('dd/MM/yyyy').format(receita.data)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'R\$ ${receita.valor.toStringAsFixed(2).replaceAll('.', ',')}',
+              style: const TextStyle(
+                color: Colors.green,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.edit, size: 20),
+              onPressed: () => _navegarParaFormulario(item: receita),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+              onPressed: () => _confirmarRemocao(receita.id!, 'receita'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Constrói o Card para um item de Despesa
+  Widget _buildDespesaCard(Despesa despesa) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+      elevation: 2,
+      child: ListTile(
+        leading: const Icon(Icons.arrow_downward, color: Colors.red),
+        title: Text(
+          despesa.nome?.isNotEmpty == true
+              ? despesa.nome!
+              : despesa.descricao?.isNotEmpty == true
+              ? despesa.descricao!
+              : 'Despesa sem descrição',
+        ),
+        subtitle: Text(
+          'Vencimento: ${DateFormat('dd/MM/yyyy').format(despesa.dataVencimento)}'
+          '${despesa.numParcelas != null && despesa.numParcelas! > 1 ? ' (${despesa.numParcelas}x)' : ''}',
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'R\$ ${despesa.valor.toStringAsFixed(2).replaceAll('.', ',')}',
+              style: const TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.edit, size: 20),
+              onPressed: () => _navegarParaFormulario(item: despesa),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+              onPressed: () => _confirmarRemocao(despesa.id!, 'despesa'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
